@@ -11,26 +11,42 @@ data {
   real<lower=0> pop;      // total population size
   real<lower=0> T;        // Infectious period
   real<lower=0> delta;    // Waning rate
+  //real<lower=0, upper=1> S0;
+  //real<lower=0, upper=1> x_I0;
+  //real<lower=0> beta0;
+  //real<lower=0, upper=1> dbeta;
+  //real<lower=0, upper=2*pi()> betaphase;
 }
 
 parameters {
-  real<lower=0.3, upper=0.7> S0;
+  // Initial proportions (scaled to population size in transformed parameters)
+  //real<lower=0, upper=1> S0;
+  real<lower=0.5, upper=0.7> S0;
   real<lower=-7, upper=0> logx_I0; // For stick-breaking method
   // Stick-breaking:
   // Given S0, let I0 = (1-S0)*x_I0. Then let R0=1-(I0+S0)
   
+  // Observation and reporting parameters.
+  //real<lower=0, upper=1> rho;
   real<lower=-2, upper=1> logrho;
+  //real<lower=1.0/58, upper=1.0/56> rho;
   
   // Transmission parameters.
-  real<lower=1.3/T, upper=2.2/T> beta0;
+  real<lower=1.3/T, upper=1.9/T> beta0;
+  //real<lower=1.5, upper=10.0> beta0;
+  //real<lower=2.0, upper=2.2> beta0;
   real<lower=0, upper=0.3> dbeta;
   real<lower=0, upper=2*pi()> betaphase;
   
   // Observation noise.
+  //real<lower=0.01, upper=1> sigma_obs;
   real<lower=0> sigma_obs;
   
+  // Epidemiological durations (in quarters)
+  //real<lower=0> delta; // Waning rate of immunity
+  
   array[Nbeta] real<lower=0.9, upper=1.1> betafac;
-  array[Nbeta] real<lower=0.9, upper=1.1> rhofac;
+  array[Nrho] real<lower=0.5, upper=1.5> rhofac;
 }
 
 transformed parameters {
@@ -40,6 +56,7 @@ transformed parameters {
   // quarterly time grid (time in quarters: 0, 1, 2, …, N + Npred - 1)
   array[N + Npred] real times;
   for (i in 1:N + Npred) {
+    //times[i] = (i - 1) * 1.0;
     times[i] = i * 1.0;
   }
   
@@ -59,12 +76,9 @@ transformed parameters {
   }
   
   // Transmission rate vector:
-  vector<lower=0>[scale_time_step * (N + Npred+1)] beta;
-  
-  array[scale_time_step * (N + Npred+1)] real model_times;
-  for (mi in 1:scale_time_step * (N + Npred+1)) {
-    model_times[mi] = (mi-1) * 1.0/scale_time_step;
-    beta[mi] = beta0 * (1 + dbeta * sin(2 * pi() * model_times[mi] / 4.0 + betaphase));
+  vector<lower=0>[N + Npred] beta;
+  for (i in 1:(N + Npred)) {
+    beta[i] = beta0 * (1 + dbeta * sin(2 * pi() * times[i] / 4.0 + betaphase));
   }
   
   // Extract the state variables at quarterly time points.
@@ -98,7 +112,7 @@ transformed parameters {
     int mi_end = mi0+scale_time_step-1;
     for (mi in mi0:mi_end) {
         int mi_loc = mi-mi0+1;
-        real foi  = beff[i] * beta[mi] * Isub[mi_loc] / pop; // Force of infection
+        real foi  = beff[i] * beta[i] * Isub[mi_loc] / pop; // Force of infection
         real Sout = (1 - exp(-(foi + mu)*dt)) * Ssub[mi_loc];         // Susceptibles leaving S
         real StoI = foi/(foi + mu) * Sout;                   // Transition from S to I
         real Iout = (1 - exp(-(gamma + mu)*dt)) * Isub[mi_loc];       // Infectious leaving I
@@ -132,24 +146,34 @@ model {
   beta0 ~ normal(0, 5.0/T);
   
   betafac ~ normal(1, 0.05);
+  //for (i in 2:Nbeta) {
+  //  betafac[i] ~ normal(betafac[i - 1], 0.05);
+  //}
   
   rhofac ~ normal(1, 0.20);
   
   logrho ~ normal(-2, 0.5);
-  sigma_obs ~ normal(0, 0.01);
-  S0 ~ normal(0.3, 0.3);
+  sigma_obs ~ normal(0, 0.1);
+  S0 ~ normal(0.6, 0.2);
   logx_I0 ~ normal(-4, 2);
   betaphase ~ uniform(0, 2 * pi());
   dbeta ~ normal(0, 0.10);
 
   // Likelihood: use the observed (quarterly) data.
+  //print("min max Ifit: ",  min(Ifit), max(Ifit));
   for (i in 1:N) {
     if (positivity[i] > 0) {
+      //positivity[i] ~ normal(Ifit[i], sigma_obs);
+      //log(positivity[i]) ~ normal(log(Ifit[i]), sigma_obs);
+      //log(positivity[i]) ~ normal(log(Ifit[i]), 0.1);
+      //positivity[i] ~ normal(Ifit[i], 0.01);
       positivity[i] ~ normal(Ifit[i], sigma_obs);
     }
   }
+  //print("sigma_obs, rho, beta0: ",  sigma_obs, " ", rho, " ", beta0);
 }
 
 generated quantities {
+    //print("sigma_obs, rho, beta0: ",  sigma_obs, " ", rho, " ", beta0);
     print("I0=", I0, " S0=", S0, " dbeta=", dbeta, " betaphase=", betaphase, " sigma_obs=", sigma_obs, " rho=", rho, " beta0=", beta0);
 }

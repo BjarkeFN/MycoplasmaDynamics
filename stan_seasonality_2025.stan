@@ -1,6 +1,6 @@
 data {
-  int N; 
-  int Npred;
+  int N; // Number of observed + missing time points
+  int Npred; // Number of prediction time points
   int Nnonpi;
   int Nnpi;
   int<lower=1> scale_time_step; // Number of simulated timesteps per data timestep
@@ -14,7 +14,7 @@ data {
 }
 
 parameters {
-  real<lower=0.4, upper=0.65> S0;
+  real<lower=0.25, upper=0.75> S0;
   real<lower=-7, upper=0> logx_I0; // For stick-breaking method
   real<lower=-2, upper=1> logrho;
   real<lower=0.0, upper=0.5> sigma;
@@ -36,6 +36,7 @@ transformed parameters {
   
   array[N + Npred] real times;
   for (i in 1:N + Npred) {
+    //times[i] = (i - 1) * 1.0;
     times[i] = i * 1.0;
   }
   
@@ -55,7 +56,7 @@ transformed parameters {
     npieff[i] = 1;
   }
 
-  // SIRS model with subdivided timesteps
+  // SIRS Model Dynamics with subdivided timesteps
   for (i in 2:(N + Npred)) {
     real dt = 1.0/scale_time_step;
     vector[scale_time_step+1] Ssub;
@@ -102,7 +103,7 @@ transformed parameters {
 model {
   // Priors for transmission rates
   sigma ~ normal(0, 0.1);
-  beta ~ normal(0.7, 0.2);
+  beta ~ normal(0.7, 0.2); // Is this distribution statement really necessary / beneficial? Better to restrict the beta variable?
   for (i in 2:52) {
     beta[i] ~ normal(beta[i - 1], sigma);
   }
@@ -112,12 +113,13 @@ model {
 
   logrho ~ normal(-2, 0.5);
   sigma_obs ~ normal(0, 0.1);
-  S0 ~ normal(0.3, 0.3);
+  S0 ~ normal(0.6, 0.2);
   logx_I0 ~ normal(-4, 2);
   
   // Likelihood for observed data
   for (i in 1:N) {
     if (positivity[i] > 0) {
+      //log(positivity[i]) ~ normal(log(Ifit[i]), sigma_obs);
       positivity[i] ~ normal(Ifit[i], sigma_obs);
     }
   }
