@@ -15,10 +15,10 @@ val_colname = "PosFrac"
 
 df[val_colname] = pd.to_numeric(df[val_colname])
 
-# Helper function to parse ISO week format (e.g. "2020-W12") into date (Monday of that ISO week)
 def iso_week_to_date(iso_str):
     """
     Convert 'YYYY-Www' string into a Python date.
+    Example: "2020-W12" -> Monday of the 12th ISO week of 2020.
     """
     match = re.match(r"(\d{4})-W(\d{1,2})", iso_str)
     if not match:
@@ -27,7 +27,6 @@ def iso_week_to_date(iso_str):
     year, week = int(year), int(week)
     return Week(year, week).monday()
 
-# Create a 'date' column from 'year_Week'
 df["date"] = df["year_Week"].apply(iso_week_to_date)
 
 df['date'] = pd.to_datetime(df["date"])
@@ -35,24 +34,32 @@ df['date'] = pd.to_datetime(df["date"])
 print(df['date'])
 
 df = df.rename(columns={val_colname: "value"})
+
 df["value"] = pd.to_numeric(df["value"])
 
 df["year"] = df["date"].dt.year
+
 df["week"] = df["date"].dt.isocalendar().week.astype(int)
+
 df.loc[df["week"] == 53, "week"] = 52
+
 
 df = df.sort_values(by="date")
 df = df.iloc[:-1]
 
+
+# Number of observed data points
 N = df.shape[0]
+
+# Number of prediction time points
 Npred = 52 * 10
 
-# We define a start time for NPIs in terms of decimal year
+# We define a start time for NPI in terms of decimal year
 npi_start_year = 2020
 npi_start_week = 12
 npi_start_decimal = npi_start_year + npi_start_week / 52.0
 
-# Decimal year + (week/52)
+# Create decimal year + (week/52)
 df["decimal_year_week"] = df["year"] + df["week"] / 52.0
 
 # Nnonpi: number of data points before the NPI starts
@@ -64,7 +71,6 @@ if N > Nnonpi:
 else:
     npiwhich = np.array([], dtype=int)
 
-# Number of NPI levels
 Nnpi = npiwhich.max() if len(npiwhich) > 0 else 0
 
 week_vector_length = N + Npred - 1
@@ -82,13 +88,13 @@ stan_data = {
     "Npred": Npred,
     "Nnonpi": Nnonpi,
     "Nnpi": Nnpi,
-    "npiwhich": npiwhich.tolist() if len(npiwhich) > 0 else [],
+    "npiwhich": npiwhich.tolist() if len(npiwhich) > 0 else [], 
     "week": week_stan,
     "positivity": df["value"].tolist(),
     "mu": 1 / (80.0 * 52.0),  # 1 / (80*52)
     "pop": 1.0,
     "T": 2.5,
-    "scale_time_step": 4,
+    "scale_time_step": 8,
 }
 
 
@@ -96,7 +102,9 @@ stan_file = "stan_sinusoid_2025.stan"
 
 sir_model = CmdStanModel(stan_file=stan_file)
 
+
 n_chains = 4
+
 inits = [{'S0': 0.5, 'logx_I0': -2.5, 'beta0': 0.8, 'dbeta': 0.15, 'betaphase': 3.6, 'sigma_obs': 0.10, 'logrho': -1.7, 'delta': 0.00175}] * n_chains  
 
 
@@ -106,8 +114,8 @@ fit = sir_model.sample(
     chains=n_chains,
     parallel_chains=n_chains,
     inits=inits,
-    iter_sampling=600,
-    iter_warmup=400,
+    iter_sampling=1500,
+    iter_warmup=1500,    # total iter = iter_warmup + iter_sampling
     adapt_delta=0.98,
     max_treedepth=12,
     show_console=True,
@@ -116,14 +124,16 @@ fit = sir_model.sample(
 
 print(fit.diagnose())
 
-
-n_divergent = np.sum(fit.divergences)  
+n_divergent = np.sum(fit.divergences) 
 print(f"Number of divergent transitions: {n_divergent}")
-
 
 output_dir = "stan_output/sinusoid_2025/"
 os.makedirs(output_dir, exist_ok=True)
 
 fit.save_csvfiles(dir=output_dir)
 
-print(f"Sampling complete. Output saved in '{output_dir}'.")
+summary_df = fit.summary()
+summary_path = os.path.join(output_dir, "stanfit_sirs_sinusoid_posfrac_inc_summary.csv")
+summary_df.to_csv(summary_path)
+
+print(f"Sampling complete. Diagnostics and summary saved in '{output_dir}'.")
